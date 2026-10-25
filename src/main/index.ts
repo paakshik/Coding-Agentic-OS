@@ -13,7 +13,7 @@ import {
 } from './db/repositories';
 import { Project, Task, TaskColumn, AgentRun, Skill, MemoryEntry, ActivityEntry, Settings, AppState, ApiResponse } from '@shared/types';
 
-const __dirname = __dirname || path.resolve(path.dirname(''));
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
@@ -529,18 +529,18 @@ function createExpressApp(): express.Express {
 function createWebSocketServer(): WebSocketServer {
   const wss = new WebSocketServer({ port: WS_PORT });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: WebSocket) => {
     console.log('WebSocket client connected');
     ws.on('close', () => console.log('WebSocket client disconnected'));
-    ws.on('error', (err) => console.error('WebSocket error:', err));
+    ws.on('error', (err: Error) => console.error('WebSocket error:', err));
   });
 
   return wss;
 }
 
-function broadcast(event: string, data: any): void {
+function broadcast(event: string, data: unknown): void {
   const message = JSON.stringify({ event, data, timestamp: new Date().toISOString() });
-  wss.clients.forEach((client) => {
+  wss.clients.forEach((client: WebSocket) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
