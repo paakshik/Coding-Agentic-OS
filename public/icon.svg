@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#161b22;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a371f7;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="32" fill="url(#bg)"/>
+  <path d="M64 64h128v128H64z" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M96 96h64v64H96z" fill="url(#accent)" rx="8"/>
+  <path d="M96 160h32v32H96z" fill="#3fb950" rx="6"/>
+  <path d="M144 160h32v32H144z" fill="#d29922" rx="6"/>
+  <path d="M192 96h32v32H192z" fill="#f85149" rx="6"/>
+  <path d="M192 160h32v32H192z" fill="#a371f7" rx="6"/>
+  <circle cx="128" cy="128" r="16" fill="#0d1117"/>
+  <path d="M120 128h16M128 120v16" stroke="#58a6ff" stroke-width="3" stroke-linecap="round"/>
+</svg>
