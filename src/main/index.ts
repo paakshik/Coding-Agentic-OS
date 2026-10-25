@@ -12,9 +12,13 @@ import {
   initializeProjectColumns
 } from './db/repositories';
 import { Project, Task, TaskColumn, AgentRun, Skill, MemoryEntry, ActivityEntry, Settings, AppState, ApiResponse } from '@shared/types';
+import { runAgent, cancelAgentRun, cleanupAllRuns, validateAgentRunner } from './agentRunner';
 
-const __dirname = __dirname || path.resolve(path.dirname(''));
+declare const __dirname: string;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Compute project root: in dev, __dirname=src/main; in prod, __dirname=dist/main/src/main
+const projectRoot = isDev ? path.resolve(__dirname, '..') : path.resolve(__dirname, '..', '..', '..');
 
 let mainWindow: BrowserWindow | null = null;
 let expressApp: express.Express;
@@ -246,20 +250,53 @@ function createExpressApp(): express.Express {
     }
   });
 
-  app.post('/api/projects/:projectId/agent-runs', (req, res) => {
+  app.post('/api/projects/:projectId/agent-runs', async (req, res) => {
     try {
       const run = agentRunsRepo.create({ projectId: req.params.projectId, ...req.body });
       activityRepo.create({ projectId: run.projectId, type: 'agent_run_started', title: `Agent run started`, entityType: 'agent_run', entityId: run.id });
       broadcast('agent_run:started', run);
+
+      // Start the actual agent process in the background
+      runAgent({
+        runId: run.id,
+        projectId: run.projectId,
+        command: run.command,
+        args: run.args,
+        workingDir: run.workingDir,
+        env: run.env,
+      }).catch((err) => {
+        console.error(`Agent run ${run.id} failed to start:`, err);
+      });
+
       res.status(201).json({ success: true, data: run });
     } catch (e) {
       res.status(500).json({ success: false, error: String(e) });
     }
   });
 
-  app.patch('/api/agent-runs/:id', (req, res) => {
+  app.patch('/api/agent-runs/:id', async (req, res) => {
     try {
-      const run = agentRunsRepo.update(req.params.id, req.body);
+      const runId = req.params.id;
+      const { status, ...otherUpdates } = req.body;
+
+      // If cancelling, use the agent runner to kill the process tree
+      if (status === 'cancelled') {
+        const cancelled = await cancelAgentRun(runId);
+        if (!cancelled) {
+          // Fallback: just update status in DB
+          const run = agentRunsRepo.update(runId, { status: 'cancelled', ...otherUpdates });
+          if (!run) return res.status(404).json({ success: false, error: 'Agent run not found' });
+          activityRepo.create({ projectId: run.projectId, type: 'agent_run_cancelled', title: `Agent run cancelled`, entityType: 'agent_run', entityId: run.id });
+          broadcast('agent_run:updated', run);
+          return res.json({ success: true, data: run });
+        }
+        // cancelAgentRun already updates DB and broadcasts
+        const updatedRun = agentRunsRepo.getById(runId);
+        return res.json({ success: true, data: updatedRun });
+      }
+
+      // For other status updates, just update the DB
+      const run = agentRunsRepo.update(runId, { status, ...otherUpdates });
       if (!run) return res.status(404).json({ success: false, error: 'Agent run not found' });
       const eventType = run.status === 'completed' ? 'agent_run_completed' : run.status === 'failed' ? 'agent_run_failed' : 'agent_run_cancelled';
       activityRepo.create({ projectId: run.projectId, type: eventType, title: `Agent run ${run.status}`, entityType: 'agent_run', entityId: run.id });
@@ -376,6 +413,16 @@ function createExpressApp(): express.Express {
       const limit = parseInt(req.query.limit as string) || 50;
       const entries = activityRepo.getRecent(projectId, limit);
       res.json({ success: true, data: entries });
+    } catch (e) {
+      res.status(500).json({ success: false, error: String(e) });
+    }
+  });
+
+  // Agent Runner API
+  app.get('/api/agent-runner/validate', async (_req, res) => {
+    try {
+      const result = await validateAgentRunner();
+      res.json({ success: true, data: result });
     } catch (e) {
       res.status(500).json({ success: false, error: String(e) });
     }
@@ -529,18 +576,18 @@ function createExpressApp(): express.Express {
 function createWebSocketServer(): WebSocketServer {
   const wss = new WebSocketServer({ port: WS_PORT });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: WebSocket) => {
     console.log('WebSocket client connected');
     ws.on('close', () => console.log('WebSocket client disconnected'));
-    ws.on('error', (err) => console.error('WebSocket error:', err));
+    ws.on('error', (err: Error) => console.error('WebSocket error:', err));
   });
 
   return wss;
 }
 
-function broadcast(event: string, data: any): void {
+function broadcast(event: string, data: unknown): void {
   const message = JSON.stringify({ event, data, timestamp: new Date().toISOString() });
-  wss.clients.forEach((client) => {
+  wss.clients.forEach((client: WebSocket) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
@@ -554,9 +601,9 @@ function createMainWindow(): BrowserWindow {
     minWidth: 1000,
     minHeight: 600,
     title: 'Coding Agentic OS',
-    icon: path.join(__dirname, '../public/icon.ico'),
+    icon: path.join(projectRoot, 'public/icon.ico'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(projectRoot, 'dist/main/src/main/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -574,7 +621,7 @@ function createMainWindow(): BrowserWindow {
     window.loadURL('http://localhost:5173');
     window.webContents.openDevTools({ mode: 'detach' });
   } else {
-    window.loadFile(path.join(__dirname, '../dist/renderer/index.html'));
+    window.loadFile(path.join(projectRoot, 'dist/renderer/index.html'));
   }
 
   window.once('ready-to-show', () => {
@@ -681,6 +728,7 @@ app.on('window-all-closed', async () => {
 });
 
 app.on('before-quit', async () => {
+  await cleanupAllRuns();
   await stopBackend();
 });
 

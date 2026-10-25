@@ -356,11 +356,12 @@ export const agentRunsRepo = {
   create(data: Omit<AgentRun, 'id' | 'startedAt'>): AgentRun {
     const id = uuidv4();
     const timestamp = now();
+    const status = data.status || 'pending';
     db.prepare(`
       INSERT INTO agent_runs (id, project_id, task_id, skill_id, status, command, args, working_dir, env, started_at, pid)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.projectId, data.taskId || null, data.skillId || null, data.status, data.command, JSON.stringify(data.args), data.workingDir, JSON.stringify(data.env || {}), timestamp, data.pid || null);
-    return { ...data, id, startedAt: timestamp };
+    `).run(id, data.projectId, data.taskId || null, data.skillId || null, status, data.command, JSON.stringify(data.args), data.workingDir, JSON.stringify(data.env || {}), timestamp, data.pid || null);
+    return { ...data, id, startedAt: timestamp, status };
   },
 
   update(id: string, data: Partial<Omit<AgentRun, 'id' | 'startedAt'>>): AgentRun | undefined {
@@ -411,7 +412,7 @@ export const skillsRepo = {
     const id = uuidv4();
     const timestamp = now();
     db.prepare(`
-      INSERT INTO skills (id, name, slug, description, version, author, source_path, type, status, tags, dependencies, entry_point, schema_path, references, assets, scripts, created_at, updated_at, trust_level, metadata)
+      INSERT INTO skills (id, name, slug, description, version, author, source_path, type, status, tags, dependencies, entry_point, schema_path, "references", assets, scripts, created_at, updated_at, trust_level, metadata)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, data.name, data.slug, data.description || null, data.version, data.author || null,
@@ -429,7 +430,7 @@ export const skillsRepo = {
 
     const updated = { ...existing, ...data, updatedAt: now() };
     db.prepare(`
-      UPDATE skills SET name = ?, slug = ?, description = ?, version = ?, author = ?, source_path = ?, type = ?, status = ?, tags = ?, dependencies = ?, entry_point = ?, schema_path = ?, references = ?, assets = ?, scripts = ?, updated_at = ?, last_used_at = ?, trust_level = ?, metadata = ?
+      UPDATE skills SET name = ?, slug = ?, description = ?, version = ?, author = ?, source_path = ?, type = ?, status = ?, tags = ?, dependencies = ?, entry_point = ?, schema_path = ?, "references" = ?, assets = ?, scripts = ?, updated_at = ?, last_used_at = ?, trust_level = ?, metadata = ?
       WHERE id = ?
     `).run(
       updated.name, updated.slug, updated.description || null, updated.version, updated.author || null,

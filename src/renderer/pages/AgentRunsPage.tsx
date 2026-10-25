@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Stop, RefreshCw, Search, Terminal, ChevronDown, MoreHorizontal, X, Copy } from 'lucide-react';
+import { Play, CircleStop as Stop, RefreshCw, Search, Terminal, ChevronDown, MoreHorizontal, X, Copy } from 'lucide-react';
 import { useCurrentProject } from '../hooks/useAppState';
 import { agentRunsApi } from '../lib/api';
 import { AgentRun, AgentRunStatus } from '@shared/types';

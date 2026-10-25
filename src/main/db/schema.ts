@@ -99,7 +99,7 @@ export function runMigrations(db: Database.Database): void {
       dependencies TEXT NOT NULL DEFAULT '[]',
       entry_point TEXT,
       schema_path TEXT,
-      references TEXT NOT NULL DEFAULT '[]',
+      "references" TEXT NOT NULL DEFAULT '[]',
       assets TEXT NOT NULL DEFAULT '[]',
       scripts TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
