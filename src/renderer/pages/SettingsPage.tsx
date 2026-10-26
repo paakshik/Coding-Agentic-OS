@@ -37,27 +37,68 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
+
     try {
+      const failures: string[] = [];
+
       for (const [key, value] of Object.entries(editedSettings)) {
-        const existing = settings.find(s => s.key === key);
-        await settingsApi.set(key, value, existing?.description, existing?.category, existing?.isSecret);
+        const existing = settings.find((setting) => setting.key === key);
+
+        const result = await settingsApi.set(
+            key,
+            value,
+            existing?.description,
+            existing?.category,
+            existing?.isSecret
+        );
+
+        if (!result.success) {
+          failures.push(`${key}: ${result.error || 'Save failed'}`);
+        }
       }
+
+      if (failures.length > 0) {
+        showToast('error', failures.join('; '));
+        return;
+      }
+
+      await loadSettings();
       showToast('success', 'Settings saved');
-      loadSettings();
-    } catch (e) {
-      showToast('error', String(e));
+    } catch (error) {
+      showToast(
+          'error',
+          error instanceof Error ? error.message : String(error)
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
-    await updateAppState({ theme: newTheme });
-    showToast('success', `Theme set to ${newTheme}`);
+  const handleThemeChange = async (
+      newTheme: 'light' | 'dark' | 'system'
+  ) => {
+    try {
+      await updateAppState({ theme: newTheme });
+      showToast('success', `Theme set to ${newTheme}`);
+    } catch (error) {
+      showToast(
+          'error',
+          error instanceof Error ? error.message : String(error)
+      );
+    }
   };
 
   const handleSidebarToggle = async () => {
-    await updateAppState({ sidebarCollapsed: !sidebarCollapsed });
+    try {
+      await updateAppState({
+        sidebarCollapsed: !sidebarCollapsed,
+      });
+    } catch (error) {
+      showToast(
+          'error',
+          error instanceof Error ? error.message : String(error)
+      );
+    }
   };
 
   const handleResetDb = async () => {

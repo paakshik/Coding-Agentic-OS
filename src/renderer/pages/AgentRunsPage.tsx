@@ -74,11 +74,13 @@ export default function AgentRunsPage() {
         taskId: formData.taskId || undefined,
         skillId: formData.skillId || undefined,
       });
-      if (res) {
+      if (res.success && res.data) {
         showToast('success', 'Agent run started');
         setShowModal(false);
         setFormData({ command: 'claude', args: '', workingDir: '', taskId: '', skillId: '' });
         loadRuns();
+      } else {
+        showToast('error', res.error || 'Failed to start agent run');
       }
     } catch (err) {
       showToast('error', String(err));
@@ -88,9 +90,11 @@ export default function AgentRunsPage() {
   const handleCancelRun = async (run: AgentRun) => {
     try {
       const res = await agentRunsApi.update(run.id, { status: 'cancelled' });
-      if (res) {
+      if (res.success && res.data) {
         showToast('success', 'Run cancelled');
         loadRuns();
+      } else {
+        showToast('error', res.error || 'Failed to cancel run');
       }
     } catch (err) {
       showToast('error', String(err));
@@ -268,7 +272,6 @@ export default function AgentRunsPage() {
                     onChange={e => setFormData(prev => ({ ...prev, workingDir: e.target.value }))}
                     className="form-input"
                     placeholder={currentProject.path}
-                    defaultValue={currentProject.path}
                   />
                 </div>
               </div>

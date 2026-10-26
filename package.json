@@ -7,22 +7,23 @@
   "license": "MIT",
   "main": "dist/main/src/main/index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
-    "dev:main": "tsx watch src/main/index.ts",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main:build\" \"npm:dev:electron\"",
     "dev:renderer": "vite",
+    "dev:main:build": "tsc -p tsconfig.main.json --watch",
+    "dev:electron": "wait-on tcp:5173 dist/main/src/main/index.js && electron .",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
-    "preview": "npm run build && electron dist/main/src/main/index.js",
-    "start": "electron dist/main/src/main/index.js",
+    "preview": "npm run build && electron .",
+    "start": "electron .",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx src/main/db/migrate.ts",
-    "db:seed": "tsx src/main/db/seed.ts"
+    "db:seed": "tsx src/main/db/seed.ts",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "^11.1.2",
-    "electron": "^30.0.0",
     "express": "^4.19.2",
     "lucide-react": "^0.454.0",
     "react": "^18.3.1",
@@ -42,6 +43,7 @@
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.3.3",
     "concurrently": "^9.1.0",
+    "electron": "30.5.1",
     "electron-builder": "^25.0.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
@@ -57,7 +59,11 @@
     },
     "files": [
       "dist/**/*",
-      "public/**/*"
+      "public/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
     ],
     "win": {
       "target": "nsis",

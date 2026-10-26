@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -11,10 +12,16 @@ import {
   skillsRepo, memoryRepo, activityRepo, settingsRepo, appStateRepo,
   initializeProjectColumns
 } from './db/repositories';
-import { Project, Task, TaskColumn, AgentRun, Skill, MemoryEntry, ActivityEntry, Settings, AppState, ApiResponse } from '@shared/types';
+import { Project, Task, TaskColumn, AgentRun, Skill, MemoryEntry, ActivityEntry, Settings, AppState, ApiResponse } from '../shared/types';
 
-const __dirname = __dirname || path.resolve(path.dirname(''));
+// Set app name before any app.getPath() calls (must be first)
+app.setName('Coding Agentic OS');
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Generate auth token at startup
+const AUTH_TOKEN = crypto.randomBytes(32).toString('hex');
+const ALLOWED_HOSTS = new Set(['127.0.0.1:3456', 'localhost:3456', '127.0.0.1:5173', 'localhost:5173']);
 
 let mainWindow: BrowserWindow | null = null;
 let expressApp: express.Express;
@@ -23,11 +30,70 @@ let wss: WebSocketServer;
 const PORT = 3456;
 const WS_PORT = 3457;
 
+// Auth middleware
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  // Allow health check without auth
+  if (req.path === '/health') {
+    return next();
+  }
+
+  // Validate Host header
+  const host = req.headers.host;
+  if (host && !ALLOWED_HOSTS.has(host)) {
+    res.status(403).json({ success: false, error: 'Invalid Host header' });
+    return;
+  }
+
+  // Check auth token
+  const token = req.headers['x-auth-token'] as string;
+  if (!token || token !== AUTH_TOKEN) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  next();
+}
+
 function createExpressApp(): express.Express {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
-  // Health check
+  // CORS - only allow local Vite dev server
+  const allowedOrigins = new Set([
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader(
+          'Access-Control-Allow-Methods',
+          'GET, POST, PATCH, DELETE, OPTIONS'
+      );
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Token');
+    }
+
+    if (req.method === 'OPTIONS') {
+      if (!origin || !allowedOrigins.has(origin)) {
+        res.status(403).end();
+        return;
+      }
+
+      res.status(204).end();
+      return;
+    }
+
+    next();
+  });
+
+  // Apply auth middleware to all /api routes
+  app.use('/api', requireAuth);
+
+  // Health check (no auth required)
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
@@ -522,7 +588,6 @@ function createExpressApp(): express.Express {
       res.status(500).json({ success: false, error: String(e) });
     }
   });
-
   return app;
 }
 
@@ -548,15 +613,24 @@ function broadcast(event: string, data: any): void {
 }
 
 function createMainWindow(): BrowserWindow {
+  // In dev: electron runs from dist/main/src/main/index.js, preload at dist/main/preload.js
+  // In prod: electron runs from dist/main/src/main/index.js, preload at dist/main/preload.js
+  // Both cases: __dirname = dist/main/src/main, so preload is at ../preload.js
+  const preloadPath = path.join(__dirname, '../preload.js');
+  const iconPath = path.join(app.getAppPath(), isDev ? 'public/icon.ico' : 'dist/renderer/icon.ico');
+  const rendererPath = isDev
+    ? 'http://localhost:5173'
+    : path.join(app.getAppPath(), 'dist/renderer/index.html');
+
   const window = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 600,
     title: 'Coding Agentic OS',
-    icon: path.join(__dirname, '../public/icon.ico'),
+    icon: iconPath,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -568,16 +642,28 @@ function createMainWindow(): BrowserWindow {
       symbolColor: '#ffffff',
       height: 36,
     },
+    backgroundColor: '#0d1117',
   });
 
   if (isDev) {
-    window.loadURL('http://localhost:5173');
+    window.loadURL(rendererPath);
     window.webContents.openDevTools({ mode: 'detach' });
   } else {
-    window.loadFile(path.join(__dirname, '../dist/renderer/index.html'));
+    window.loadFile(rendererPath);
   }
 
+  // Security: prevent window.open and navigation to external URLs
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    const allowedOrigins = ['http://localhost:5173', `file://${app.getAppPath()}`];
+    if (!allowedOrigins.some(origin => url.startsWith(origin))) {
+      event.preventDefault();
+    }
+  });
+
   window.once('ready-to-show', () => {
+    // Send auth token to renderer
+    window.webContents.send('auth:token', AUTH_TOKEN);
     window.show();
   });
 

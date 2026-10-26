@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, Search, Filter, RefreshCw, Clock, Loader2 } from 'lucide-react';
 import { useCurrentProject } from '../hooks/useAppState';
 import { activityApi } from '../lib/api';
@@ -11,27 +11,26 @@ export default function ActivityPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<ActivityType | 'all'>('all');
 
-  useEffect(() => {
-    if (currentProject) {
-      loadActivity();
-    } else {
-      setEntries([]);
-      setLoading(false);
-    }
-  }, [currentProject]);
-
-  const loadActivity = async () => {
-    if (!currentProject) return;
+  const loadActivity = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await activityApi.list(currentProject.id, 200);
-      if (res.success) setEntries(res.data || []);
-    } catch (e) {
-      console.error('Failed to load activity:', e);
+      // No project selected means request the global activity feed.
+      const res = await activityApi.list(currentProject?.id, 200);
+      if (res.success) {
+        setEntries(res.data || []);
+      } else {
+        console.error('Failed to load activity:', res.error || 'Unknown API error');
+      }
+    } catch (error) {
+      console.error('Failed to load activity:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentProject?.id]);
+
+  useEffect(() => {
+    void loadActivity();
+  }, [loadActivity]);
 
   const filteredEntries = entries.filter(e => {
     const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

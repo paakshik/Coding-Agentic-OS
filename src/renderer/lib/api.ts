@@ -1,18 +1,33 @@
-const API_BASE = 'http://127.0.0.1:3456';
-
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
 }
 
+function getAuthToken(): string | null {
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    return window.electronAPI.getAuthToken();
+  }
+  return null;
+}
+
+function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    return window.electronAPI.getApiBaseUrl();
+  }
+  return 'http://127.0.0.1:3456';
+}
+
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<{ success: boolean; data?: T; error?: string; message?: string }> {
   const { params, headers, ...fetchOptions } = options;
-  const url = new URL(`${API_BASE}${endpoint}`);
+  const baseUrl = getApiBaseUrl();
+  const url = new URL(`${baseUrl}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => url.searchParams.append(key, value));
   }
 
+  const token = getAuthToken();
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',
+    ...(token ? { 'X-Auth-Token': token } : {}),
     ...headers,
   };
 

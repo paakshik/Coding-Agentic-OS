@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// Auth token will be injected at runtime via IPC
+let authToken: string | null = null;
+ipcRenderer.on('auth:token', (_e, token: string) => { authToken = token; });
+
 contextBridge.exposeInMainWorld('electronAPI', {
   dialog: {
     openDirectory: () => ipcRenderer.invoke('dialog:open-directory'),
@@ -17,6 +21,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('menu:action', (_e, action) => callback(action));
     return () => ipcRenderer.removeAllListeners('menu:action');
   },
+  getAuthToken: () => authToken,
+  getApiBaseUrl: () => 'http://127.0.0.1:3456',
+  getWsUrl: () => 'ws://127.0.0.1:3457',
 });
 
 declare global {
@@ -34,6 +41,9 @@ declare global {
         getPath: (name: 'userData' | 'temp' | 'home') => Promise<string>;
       };
       onMenuAction: (callback: (action: string) => void) => () => void;
+      getAuthToken: () => string | null;
+      getApiBaseUrl: () => string;
+      getWsUrl: () => string;
     };
   }
 }

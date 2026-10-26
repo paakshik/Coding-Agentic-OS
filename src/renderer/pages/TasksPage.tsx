@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, LayoutDashboard, MoreHorizontal } from 'lucide-react';
+import { Plus, Search, Filter, LayoutDashboard, MoreHorizontal, Loader2 } from 'lucide-react';
 import { useCurrentProject } from '../hooks/useAppState';
 import { tasksApi, columnsApi } from '../lib/api';
 import { Task, TaskColumn } from '@shared/types';

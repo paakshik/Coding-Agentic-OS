@@ -39,7 +39,12 @@ export const useAppState = create<AppStateStore>((set, get) => ({
 
   updateAppState: async (data) => {
     const res = await appStateApi.update(data);
-    if (res.success && res.data) {
+
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to save application state');
+    }
+
+    if (res.data) {
       set(res.data);
     }
   },

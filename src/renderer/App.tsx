@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Link, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderKanban, Play, GitBranch, BookOpen, Database, Activity, Settings,
   ChevronLeft, ChevronRight, Menu, X, Plus, Search, Bell, Moon, Sun, Monitor,
@@ -54,15 +54,20 @@ function Sidebar({ collapsed, onToggle, currentPath }: { collapsed: boolean; onT
           <div key={section.key} className="nav-section">
             <div className="nav-section-title">{section.title}</div>
             {section.items.map((item) => (
-              <a
-                key={item.path}
-                href={item.path}
-                className={`nav-item ${currentPath === item.path || (item.path !== '/' && currentPath.startsWith(item.path)) ? 'active' : ''}`}
-                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-              >
-                <item.icon size={18} aria-hidden="true" />
-                <span>{item.label}</span>
-              </a>
+                <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`nav-item ${
+                        currentPath === item.path ||
+                        (item.path !== '/' && currentPath.startsWith(item.path))
+                            ? 'active'
+                            : ''
+                    }`}
+                    data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                >
+                  <item.icon size={18} aria-hidden="true" />
+                  <span>{item.label}</span>
+                </Link>
             ))}
           </div>
         ))}
@@ -89,7 +94,9 @@ function Header({ currentProject, onProjectChange, sidebarCollapsed, onToggleSid
 
   useEffect(() => {
     api.get('/api/projects').then(res => {
-      if (res.success) setProjects(res.data);
+      if (res.success) { // @ts-ignore
+        setProjects(res.data);
+      }
     });
   }, []);
 
@@ -205,9 +212,56 @@ function Header({ currentProject, onProjectChange, sidebarCollapsed, onToggleSid
 }
 
 function AppLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { currentProject, setCurrentProject } = useAppState();
+  const {
+    currentProjectId,
+    sidebarCollapsed,
+    setCurrentProject,
+    updateAppState,
+    loadAppState,
+  } = useAppState();
+
+  const { projects, fetchProjects } = useProjects();
+  const currentProject =
+      projects.find((project) => project.id === currentProjectId) ?? null;
+
   const location = useLocation();
+
+  useEffect(() => {
+    void loadAppState().catch((error) => {
+      console.error('Failed to load application state:', error);
+    });
+
+    void fetchProjects().catch((error) => {
+      console.error('Failed to load projects:', error);
+    });
+  }, [loadAppState, fetchProjects]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const applyTheme = () => {
+      const resolvedTheme =
+          useAppState.getState().theme === 'system'
+              ? media.matches ? 'dark' : 'light'
+              : useAppState.getState().theme;
+
+      root.dataset.theme = resolvedTheme;
+    };
+
+    applyTheme();
+    media.addEventListener('change', applyTheme);
+
+    return () => media.removeEventListener('change', applyTheme);
+  }, [useAppState((state) => state.theme)]);
+
+  const toggleSidebar = useCallback(() => {
+    void updateAppState({
+      sidebarCollapsed: !useAppState.getState().sidebarCollapsed,
+    }).catch((error) => {
+      console.error('Failed to update sidebar state:', error);
+    });
+  }, [updateAppState]);
 
   const handleMenuAction = useCallback((action: string) => {
     if (action === 'new-project') {
@@ -228,10 +282,10 @@ function AppLayout() {
         currentProject={currentProject}
         onProjectChange={setCurrentProject}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggleSidebar={toggleSidebar}
       />
       <div className="main-content">
-        <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} currentPath={location.pathname} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} currentPath={location.pathname} />
         <main className="content-area" role="main">
           <Outlet />
         </main>
