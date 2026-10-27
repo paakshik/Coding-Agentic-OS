@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local coding command centre for managing coding agents, tasks, projects, skills, and memory with Claude Code integration",
-  "author": "",
+  "author": "paakshik",
   "license": "MIT",
   "main": "dist/main/src/main/index.js",
   "scripts": {
@@ -50,6 +50,9 @@
     "vite": "^5.4.10",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "build": {
     "appId": "com.codingagentic.os",

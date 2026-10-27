@@ -5,7 +5,7 @@
     "moduleResolution": "Node",
     "outDir": "dist/main",
     "rootDir": ".",
-    "declaration": true,
+    "declaration": false,
     "noEmit": false,
     "baseUrl": ".",
     "paths": {

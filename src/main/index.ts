@@ -12,12 +12,15 @@ import {
   skillsRepo, memoryRepo, activityRepo, settingsRepo, appStateRepo,
   initializeProjectColumns
 } from './db/repositories';
+import { resolveInside, validateProjectPath } from './security/paths';
 import { Project, Task, TaskColumn, AgentRun, Skill, MemoryEntry, ActivityEntry, Settings, AppState, ApiResponse } from '../shared/types';
 
 // Set app name before any app.getPath() calls (must be first)
 app.setName('Coding Agentic OS');
 
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+// isDev = true when running via tsx watch (dev:main) or vite (dev:renderer)
+// isDev = false when running via electron . (built files) or packaged app
+const isDev = process.env.NODE_ENV === 'development' || process.argv.some(arg => arg.includes('tsx'));
 
 // Generate auth token at startup
 const AUTH_TOKEN = crypto.randomBytes(32).toString('hex');
@@ -503,8 +506,10 @@ function createExpressApp(): express.Express {
       const project = projectsRepo.getById(projectId);
       if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
 
-      const fullPath = path.resolve(project.path, relativePath);
-      if (!fullPath.startsWith(path.resolve(project.path))) {
+      let fullPath: string;
+      try {
+        fullPath = resolveInside(project.path, relativePath);
+      } catch {
         return res.status(403).json({ success: false, error: 'Path traversal not allowed' });
       }
       if (!fs.existsSync(fullPath)) return res.status(404).json({ success: false, error: 'File not found' });
@@ -522,8 +527,10 @@ function createExpressApp(): express.Express {
       const project = projectsRepo.getById(projectId);
       if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
 
-      const fullPath = path.resolve(project.path, relativePath);
-      if (!fullPath.startsWith(path.resolve(project.path))) {
+      let fullPath: string;
+      try {
+        fullPath = resolveInside(project.path, relativePath);
+      } catch {
         return res.status(403).json({ success: false, error: 'Path traversal not allowed' });
       }
 
@@ -541,8 +548,10 @@ function createExpressApp(): express.Express {
       const project = projectsRepo.getById(projectId);
       if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
 
-      const fullPath = path.resolve(project.path, relativePath);
-      if (!fullPath.startsWith(path.resolve(project.path))) {
+      let fullPath: string;
+      try {
+        fullPath = resolveInside(project.path, relativePath);
+      } catch {
         return res.status(403).json({ success: false, error: 'Path traversal not allowed' });
       }
       if (!fs.existsSync(fullPath)) return res.status(404).json({ success: false, error: 'Path not found' });
@@ -566,6 +575,12 @@ function createExpressApp(): express.Express {
       const project = projectsRepo.getById(projectId);
       if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
 
+      // Validate project path
+      const pathValidation = validateProjectPath(project.path);
+      if (!pathValidation.valid) {
+        return res.status(400).json({ success: false, error: pathValidation.error });
+      }
+
       const { execSync } = require('child_process');
       const status = execSync('git status --porcelain', { cwd: project.path, encoding: 'utf-8', timeout: 5000 });
       res.json({ success: true, data: { status: status.trim() } });
@@ -579,6 +594,12 @@ function createExpressApp(): express.Express {
       const { projectId, filePath } = req.body;
       const project = projectsRepo.getById(projectId);
       if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+
+      // Validate project path
+      const pathValidation = validateProjectPath(project.path);
+      if (!pathValidation.valid) {
+        return res.status(400).json({ success: false, error: pathValidation.error });
+      }
 
       const { execSync } = require('child_process');
       const args = filePath ? ['diff', filePath] : ['diff'];
@@ -594,7 +615,24 @@ function createExpressApp(): express.Express {
 function createWebSocketServer(): WebSocketServer {
   const wss = new WebSocketServer({ port: WS_PORT });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    // Validate auth token from query string
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+    if (!token || token !== AUTH_TOKEN) {
+      console.log('WebSocket connection rejected: invalid auth token');
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
+
+    // Validate Host header
+    const host = req.headers.host;
+    if (host && !ALLOWED_HOSTS.has(host)) {
+      console.log('WebSocket connection rejected: invalid Host header');
+      ws.close(4003, 'Invalid Host');
+      return;
+    }
+
     console.log('WebSocket client connected');
     ws.on('close', () => console.log('WebSocket client disconnected'));
     ws.on('error', (err) => console.error('WebSocket error:', err));
@@ -744,13 +782,97 @@ async function stopBackend(): Promise<void> {
   await new Promise<void>((resolve) => httpServer.close(() => resolve()));
 }
 
+// Single instance lock
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  // Someone tried to run a second instance, focus our window instead
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+async function startBackendWithRetry(port: number, maxRetries = 5): Promise<void> {
+  expressApp = createExpressApp();
+  httpServer = createServer(expressApp);
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        httpServer.listen(port, '127.0.0.1', () => {
+          console.log(`REST API listening on http://127.0.0.1:${port}`);
+          resolve();
+        });
+        httpServer.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code === 'EADDRINUSE' && attempt < maxRetries) {
+            console.log(`Port ${port} in use, retrying... (attempt ${attempt + 1}/${maxRetries})`);
+            reject(err);
+          } else {
+            reject(err);
+          }
+        });
+      });
+      break;
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  // WebSocket server on fixed port - create inside promise to catch errors properly
+  await new Promise<void>((resolve, reject) => {
+    const wsServer = new WebSocketServer({ port: WS_PORT });
+
+    wsServer.on('listening', () => {
+      console.log(`WebSocket server listening on ws://127.0.0.1:${WS_PORT}`);
+      wss = wsServer;
+      resolve();
+    });
+    wsServer.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`WebSocket port ${WS_PORT} in use`));
+      } else {
+        reject(err);
+      }
+    });
+
+    wsServer.on('connection', (ws, req) => {
+      // Validate auth token from query string
+      const url = new URL(req.url || '', `http://${req.headers.host}`);
+      const token = url.searchParams.get('token');
+      if (!token || token !== AUTH_TOKEN) {
+        console.log('WebSocket connection rejected: invalid auth token');
+        ws.close(4001, 'Unauthorized');
+        return;
+      }
+
+      // Validate Host header
+      const host = req.headers.host;
+      if (host && !ALLOWED_HOSTS.has(host)) {
+        console.log('WebSocket connection rejected: invalid Host header');
+        ws.close(4003, 'Invalid Host');
+        return;
+      }
+
+      console.log('WebSocket client connected');
+      ws.on('close', () => console.log('WebSocket client disconnected'));
+      ws.on('error', (err) => console.error('WebSocket error:', err));
+    });
+  });
+}
+
 app.whenReady().then(async () => {
   // Initialize database
   getDatabase();
   console.log('Database initialized');
 
-  // Start backend services
-  await startBackend();
+  // Start backend services with port retry
+  await startBackendWithRetry(PORT);
 
   // Create main window
   mainWindow = createMainWindow();
